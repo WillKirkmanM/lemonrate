@@ -5,36 +5,43 @@
 #include <vector>
 #include <algorithm>
 #include <cstdio>
+#include <iterator>
 #include <thread>
 #include <chrono>
 #include <iostream>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <array>
+
+
+std::string exec(const char* cmd) {
+    std::array<char, 128> buffer;
+    std::string result;
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd, "r"), pclose);
+    if (!pipe) {
+        throw std::runtime_error("popen() failed!");
+    }
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    return result;
+}
 
 int main() {
   while (true) {
     std::string line;
-    std::ifstream file("/sys/class/power_supply/AC/online");
+    std::ifstream file("/sys/class/power_supply/ACAD/online");
 
     if (file.is_open()) {
       while (getline(file, line)) {
-        std::string cmd = "xrandr | grep '*' | cut -d' ' -f9";
-        FILE* pipe = popen(cmd.c_str(), "r");
-        if (!pipe) return 1;
-        char buffer[128];
-        std::string result = "";
-        while(!feof(pipe)) {
-          if(fgets(buffer, 128, pipe) != NULL)
-            result += buffer;
-        }
-        pclose(pipe);
-        std::istringstream iss(result);
-        std::vector<std::string> rates((std::istream_iterator<std::string>(iss)),
-                        std::istream_iterator<std::string>());
-        std::string max_rate = *std::max_element(rates.begin(), rates.end());
-
-        if (line == "1") {
-          system(("xrandr --output eDP-1 --mode 1920x1080 --rate " + max_rate).c_str());
+        
+      std::string max_rate = exec("xrandr | awk '{print $2}' | sort -rn | sed q");
+        
+       if (line == "1") {
+          system(("xrandr --rate " + max_rate).c_str());
         } else {
-          system("xrandr --output eDP-1 --mode 1920x1080 --rate 60");
+          system("xrandr --rate 60");
         }
       }
       file.close();
@@ -42,7 +49,6 @@ int main() {
       std::cout << "Unable to open file" << std::endl;
     }
 
-    std::this_thread::sleep_for(std::chrono::seconds(5));
   }
 
   return 0;
